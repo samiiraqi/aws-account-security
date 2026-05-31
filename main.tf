@@ -22,3 +22,12 @@ provider "aws" {
     }
   }
 }
+
+module "security_baseline" {
+  source = "./modules/security_baseline"
+
+  aws_region     = var.aws_region
+  aws_account_id = var.aws_account_id
+  project_name   = var.project_name
+  environment    = var.environment
+}
