@@ -1,121 +1,6 @@
-# ---------------------------------------------------------------
-# 1 + 2. SNS Topic & Email Subscription
-# ---------------------------------------------------------------
-
-resource "aws_sns_topic" "security_alerts" {
-  name = "security-alerts"
-}
-
-resource "aws_sns_topic_policy" "security_alerts" {
-  arn = aws_sns_topic.security_alerts.arn
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid    = "AllowEventBridgePublish"
-        Effect = "Allow"
-        Principal = {
-          Service = "events.amazonaws.com"
-        }
-        Action   = "sns:Publish"
-        Resource = aws_sns_topic.security_alerts.arn
-      },
-      {
-        Sid    = "AllowCloudWatchPublish"
-        Effect = "Allow"
-        Principal = {
-          Service = "cloudwatch.amazonaws.com"
-        }
-        Action   = "sns:Publish"
-        Resource = aws_sns_topic.security_alerts.arn
-      }
-    ]
-  })
-}
-
-resource "aws_sns_topic_subscription" "email" {
-  topic_arn = aws_sns_topic.security_alerts.arn
-  protocol  = "email"
-  endpoint  = var.alert_email
-}
-
-# ---------------------------------------------------------------
-# 3. Billing Alarm
-# Billing metrics are global but published only to us-east-1
-# ---------------------------------------------------------------
-
-resource "aws_cloudwatch_metric_alarm" "billing" {
-  alarm_name          = "billing-threshold-${var.billing_alarm_threshold}-usd"
-  alarm_description   = "Estimated charges exceeded $${var.billing_alarm_threshold} USD"
-  comparison_operator = "GreaterThanOrEqualToThreshold"
-  evaluation_periods  = 1
-  metric_name         = "EstimatedCharges"
-  namespace           = "AWS/Billing"
-  period              = 86400
-  statistic           = "Maximum"
-  threshold           = var.billing_alarm_threshold
-  treat_missing_data  = "notBreaching"
-  alarm_actions       = [aws_sns_topic.security_alerts.arn]
-
-  dimensions = {
-    Currency = "USD"
-  }
-}
-
-# ---------------------------------------------------------------
-# 4. GuardDuty → EventBridge → SNS
-# ---------------------------------------------------------------
-
-resource "aws_cloudwatch_event_rule" "guardduty" {
-  name        = "guardduty-findings"
-  description = "Forward GuardDuty findings to SNS"
-
-  event_pattern = jsonencode({
-    source      = ["aws.guardduty"]
-    detail-type = ["GuardDuty Finding"]
-  })
-}
-
-resource "aws_cloudwatch_event_target" "guardduty_sns" {
-  rule      = aws_cloudwatch_event_rule.guardduty.name
-  target_id = "GuardDutyToSNS"
-  arn       = aws_sns_topic.security_alerts.arn
-}
-
-# ---------------------------------------------------------------
-# 5. Security Hub → EventBridge → SNS
-# Filter: only NEW + ACTIVE + FAILED findings
-# ---------------------------------------------------------------
-
-resource "aws_cloudwatch_event_rule" "securityhub" {
-  name        = "securityhub-findings"
-  description = "Forward Security Hub failed findings to SNS"
-
-  event_pattern = jsonencode({
-    source      = ["aws.securityhub"]
-    detail-type = ["Security Hub Findings - Imported"]
-    detail = {
-      findings = {
-        Compliance  = { Status = ["FAILED"] }
-        Workflow    = { Status = ["NEW"] }
-        RecordState = ["ACTIVE"]
-      }
-    }
-  })
-}
-
-resource "aws_cloudwatch_event_target" "securityhub_sns" {
-  rule      = aws_cloudwatch_event_rule.securityhub.name
-  target_id = "SecurityHubToSNS"
-  arn       = aws_sns_topic.security_alerts.arn
-}
-
-# ---------------------------------------------------------------
-# 6. CloudWatch Dashboard
-# ---------------------------------------------------------------
-
 locals {
+  lambda_function_name = "${var.project_name}-alerts-formatter"
+
   dashboard_body = jsonencode({
     widgets = [
       {
@@ -182,6 +67,204 @@ locals {
     ]
   })
 }
+
+# ---------------------------------------------------------------
+# 1 + 2. SNS Topic & Email Subscription
+# EventBridge now routes through Lambda — only CloudWatch (billing)
+# publishes directly to SNS, so the topic policy reflects that.
+# ---------------------------------------------------------------
+
+resource "aws_sns_topic" "security_alerts" {
+  name = "security-alerts"
+}
+
+resource "aws_sns_topic_policy" "security_alerts" {
+  arn = aws_sns_topic.security_alerts.arn
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowCloudWatchPublish"
+        Effect = "Allow"
+        Principal = {
+          Service = "cloudwatch.amazonaws.com"
+        }
+        Action   = "sns:Publish"
+        Resource = aws_sns_topic.security_alerts.arn
+      }
+    ]
+  })
+}
+
+resource "aws_sns_topic_subscription" "email" {
+  topic_arn = aws_sns_topic.security_alerts.arn
+  protocol  = "email"
+  endpoint  = var.alert_email
+}
+
+# ---------------------------------------------------------------
+# 3. Billing Alarm
+# Billing metrics are global but published only to us-east-1
+# ---------------------------------------------------------------
+
+resource "aws_cloudwatch_metric_alarm" "billing" {
+  alarm_name          = "billing-threshold-${var.billing_alarm_threshold}-usd"
+  alarm_description   = "Estimated charges exceeded $${var.billing_alarm_threshold} USD"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  metric_name         = "EstimatedCharges"
+  namespace           = "AWS/Billing"
+  period              = 86400
+  statistic           = "Maximum"
+  threshold           = var.billing_alarm_threshold
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.security_alerts.arn]
+
+  dimensions = {
+    Currency = "USD"
+  }
+}
+
+# ---------------------------------------------------------------
+# Lambda — Alert Formatter
+# ---------------------------------------------------------------
+
+data "archive_file" "lambda_alerts" {
+  type        = "zip"
+  source_file = "${path.module}/lambda/handler.py"
+  output_path = "${path.module}/lambda/handler.zip"
+}
+
+resource "aws_iam_role" "lambda_alerts" {
+  name = "${var.project_name}-lambda-alerts"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "lambda.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "lambda_alerts" {
+  name = "sns-publish-and-logs"
+  role = aws_iam_role.lambda_alerts.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "PublishToSNS"
+        Effect   = "Allow"
+        Action   = "sns:Publish"
+        Resource = aws_sns_topic.security_alerts.arn
+      },
+      {
+        Sid    = "WriteLogs"
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ]
+        Resource = "${aws_cloudwatch_log_group.lambda_alerts.arn}:*"
+      }
+    ]
+  })
+}
+
+resource "aws_cloudwatch_log_group" "lambda_alerts" {
+  name              = "/aws/lambda/${local.lambda_function_name}"
+  retention_in_days = 30
+}
+
+resource "aws_lambda_function" "alerts_formatter" {
+  filename         = data.archive_file.lambda_alerts.output_path
+  function_name    = local.lambda_function_name
+  role             = aws_iam_role.lambda_alerts.arn
+  handler          = "handler.lambda_handler"
+  runtime          = "python3.12"
+  source_code_hash = data.archive_file.lambda_alerts.output_base64sha256
+  timeout          = 30
+
+  environment {
+    variables = {
+      SNS_TOPIC_ARN = aws_sns_topic.security_alerts.arn
+    }
+  }
+
+  depends_on = [aws_cloudwatch_log_group.lambda_alerts]
+}
+
+# ---------------------------------------------------------------
+# 4. GuardDuty → EventBridge → Lambda → SNS
+# ---------------------------------------------------------------
+
+resource "aws_cloudwatch_event_rule" "guardduty" {
+  name        = "guardduty-findings"
+  description = "Forward GuardDuty findings to the alert formatter Lambda"
+
+  event_pattern = jsonencode({
+    source      = ["aws.guardduty"]
+    detail-type = ["GuardDuty Finding"]
+  })
+}
+
+resource "aws_cloudwatch_event_target" "guardduty_lambda" {
+  rule      = aws_cloudwatch_event_rule.guardduty.name
+  target_id = "GuardDutyToLambda"
+  arn       = aws_lambda_function.alerts_formatter.arn
+}
+
+resource "aws_lambda_permission" "guardduty" {
+  statement_id  = "AllowEventBridgeGuardDuty"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.alerts_formatter.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.guardduty.arn
+}
+
+# ---------------------------------------------------------------
+# 5. Security Hub → EventBridge → Lambda → SNS
+# Filter: only NEW + ACTIVE + FAILED findings
+# ---------------------------------------------------------------
+
+resource "aws_cloudwatch_event_rule" "securityhub" {
+  name        = "securityhub-findings"
+  description = "Forward Security Hub failed findings to the alert formatter Lambda"
+
+  event_pattern = jsonencode({
+    source      = ["aws.securityhub"]
+    detail-type = ["Security Hub Findings - Imported"]
+    detail = {
+      findings = {
+        Compliance  = { Status = ["FAILED"] }
+        Workflow    = { Status = ["NEW"] }
+        RecordState = ["ACTIVE"]
+      }
+    }
+  })
+}
+
+resource "aws_cloudwatch_event_target" "securityhub_lambda" {
+  rule      = aws_cloudwatch_event_rule.securityhub.name
+  target_id = "SecurityHubToLambda"
+  arn       = aws_lambda_function.alerts_formatter.arn
+}
+
+resource "aws_lambda_permission" "securityhub" {
+  statement_id  = "AllowEventBridgeSecurityHub"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.alerts_formatter.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.securityhub.arn
+}
+
+# ---------------------------------------------------------------
+# 6. CloudWatch Dashboard
+# ---------------------------------------------------------------
 
 resource "aws_cloudwatch_dashboard" "main" {
   dashboard_name = "account-security"

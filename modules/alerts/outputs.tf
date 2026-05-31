@@ -17,3 +17,13 @@ output "billing_alarm_arn" {
   description = "ARN of the billing CloudWatch alarm"
   value       = aws_cloudwatch_metric_alarm.billing.arn
 }
+
+output "lambda_function_arn" {
+  description = "ARN of the alert formatter Lambda function"
+  value       = aws_lambda_function.alerts_formatter.arn
+}
+
+output "lambda_function_name" {
+  description = "Name of the alert formatter Lambda function"
+  value       = aws_lambda_function.alerts_formatter.function_name
+}
