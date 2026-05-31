@@ -20,3 +20,14 @@ variable "aws_account_id" {
   description = "AWS account ID where resources will be deployed"
   type        = string
 }
+
+variable "alert_email" {
+  description = "Email address to receive security and billing alerts"
+  type        = string
+}
+
+variable "billing_alarm_threshold" {
+  description = "USD threshold that triggers the billing alarm"
+  type        = number
+  default     = 20
+}

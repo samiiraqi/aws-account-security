@@ -2,3 +2,6 @@ aws_region     = "us-east-1"
 project_name   = "aws-account-security"
 environment    = "production"
 aws_account_id = "123456789012"
+
+alert_email             = "your-email@example.com"
+billing_alarm_threshold = 20

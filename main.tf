@@ -31,3 +31,13 @@ module "security_baseline" {
   project_name   = var.project_name
   environment    = var.environment
 }
+
+module "alerts" {
+  source = "./modules/alerts"
+
+  aws_region              = var.aws_region
+  aws_account_id          = var.aws_account_id
+  project_name            = var.project_name
+  alert_email             = var.alert_email
+  billing_alarm_threshold = var.billing_alarm_threshold
+}

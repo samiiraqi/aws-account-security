@@ -27,3 +27,18 @@ output "cloudtrail_kms_key_arn" {
   description = "KMS key ARN used to encrypt CloudTrail logs"
   value       = module.security_baseline.cloudtrail_kms_key_arn
 }
+
+output "sns_topic_arn" {
+  description = "ARN of the security-alerts SNS topic"
+  value       = module.alerts.sns_topic_arn
+}
+
+output "cloudwatch_dashboard_name" {
+  description = "Name of the CloudWatch security dashboard"
+  value       = module.alerts.dashboard_name
+}
+
+output "billing_alarm_arn" {
+  description = "ARN of the billing CloudWatch alarm"
+  value       = module.alerts.billing_alarm_arn
+}
