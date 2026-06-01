@@ -240,6 +240,7 @@ resource "aws_cloudwatch_event_rule" "securityhub" {
     detail-type = ["Security Hub Findings - Imported"]
     detail = {
       findings = {
+        Severity    = { Label = ["CRITICAL", "HIGH"] }
         Compliance  = { Status = ["FAILED"] }
         Workflow    = { Status = ["NEW"] }
         RecordState = ["ACTIVE"]
