@@ -7,7 +7,7 @@ locals {
         type   = "metric"
         x      = 0
         y      = 0
-        width  = 8
+        width  = 12
         height = 6
         properties = {
           title   = "Billing — Estimated Charges (USD)"
@@ -22,7 +22,7 @@ locals {
           annotations = {
             horizontal = [
               {
-                label = "Alarm threshold"
+                label = "Budget limit"
                 value = var.billing_alarm_threshold
                 color = "#ff6961"
               }
@@ -32,36 +32,54 @@ locals {
       },
       {
         type   = "metric"
-        x      = 8
+        x      = 12
         y      = 0
-        width  = 8
+        width  = 12
         height = 6
         properties = {
-          title   = "GuardDuty — Finding Count"
+          title   = "SNS — Messages Sent"
           view    = "timeSeries"
           region  = var.aws_region
           stat    = "Sum"
           period  = 300
           metrics = [
-            ["AWS/GuardDuty", "FindingCount"]
+            ["AWS/SNS", "NumberOfMessagesSent", "TopicName", aws_sns_topic.security_alerts.name]
           ]
         }
       },
       {
         type   = "metric"
-        x      = 16
-        y      = 0
-        width  = 8
+        x      = 0
+        y      = 6
+        width  = 12
         height = 6
         properties = {
-          title   = "Config — Non-Compliant Rules"
+          title   = "Lambda — Invocations"
           view    = "timeSeries"
           region  = var.aws_region
           stat    = "Sum"
           period  = 300
           metrics = [
-            ["AWS/Config", "ComplianceByConfigRule", "ComplianceType", "NON_COMPLIANT"]
+            ["AWS/Lambda", "Invocations", "FunctionName", local.lambda_function_name]
           ]
+        }
+      },
+      {
+        type   = "metric"
+        x      = 12
+        y      = 6
+        width  = 12
+        height = 6
+        properties = {
+          title   = "Lambda — Errors"
+          view    = "timeSeries"
+          region  = var.aws_region
+          stat    = "Sum"
+          period  = 300
+          metrics = [
+            ["AWS/Lambda", "Errors", "FunctionName", local.lambda_function_name]
+          ]
+          yAxis = { left = { min = 0 } }
         }
       }
     ]
