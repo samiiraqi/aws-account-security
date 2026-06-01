@@ -104,25 +104,31 @@ resource "aws_sns_topic_subscription" "email" {
 }
 
 # ---------------------------------------------------------------
-# 3. Billing Alarm
-# Billing metrics are global but published only to us-east-1
+# 3. AWS Budget — Monthly Cost
+# Actual > 100% ($20) and Forecast > 80% ($16) trigger email
 # ---------------------------------------------------------------
 
-resource "aws_cloudwatch_metric_alarm" "billing" {
-  alarm_name          = "billing-threshold-${var.billing_alarm_threshold}-usd"
-  alarm_description   = "Estimated charges exceeded $${var.billing_alarm_threshold} USD"
-  comparison_operator = "GreaterThanOrEqualToThreshold"
-  evaluation_periods  = 1
-  metric_name         = "EstimatedCharges"
-  namespace           = "AWS/Billing"
-  period              = 86400
-  statistic           = "Maximum"
-  threshold           = var.billing_alarm_threshold
-  treat_missing_data  = "notBreaching"
-  alarm_actions       = [aws_sns_topic.security_alerts.arn]
+resource "aws_budgets_budget" "monthly" {
+  name         = "${var.project_name}-monthly-budget"
+  budget_type  = "COST"
+  limit_amount = tostring(var.billing_alarm_threshold)
+  limit_unit   = "USD"
+  time_unit    = "MONTHLY"
 
-  dimensions = {
-    Currency = "USD"
+  notification {
+    comparison_operator        = "GREATER_THAN"
+    threshold                  = 100
+    threshold_type             = "PERCENTAGE"
+    notification_type          = "ACTUAL"
+    subscriber_email_addresses = [var.alert_email]
+  }
+
+  notification {
+    comparison_operator        = "GREATER_THAN"
+    threshold                  = 80
+    threshold_type             = "PERCENTAGE"
+    notification_type          = "FORECASTED"
+    subscriber_email_addresses = [var.alert_email]
   }
 }
 

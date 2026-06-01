@@ -13,9 +13,9 @@ output "dashboard_name" {
   value       = aws_cloudwatch_dashboard.main.dashboard_name
 }
 
-output "billing_alarm_arn" {
-  description = "ARN of the billing CloudWatch alarm"
-  value       = aws_cloudwatch_metric_alarm.billing.arn
+output "monthly_budget_name" {
+  description = "Name of the monthly AWS budget"
+  value       = aws_budgets_budget.monthly.name
 }
 
 output "lambda_function_arn" {

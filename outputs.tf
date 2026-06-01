@@ -38,7 +38,7 @@ output "cloudwatch_dashboard_name" {
   value       = module.alerts.dashboard_name
 }
 
-output "billing_alarm_arn" {
-  description = "ARN of the billing CloudWatch alarm"
-  value       = module.alerts.billing_alarm_arn
+output "monthly_budget_name" {
+  description = "Name of the monthly AWS budget"
+  value       = module.alerts.monthly_budget_name
 }
