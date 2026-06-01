@@ -216,3 +216,11 @@ resource "aws_ssm_service_setting" "block_public_sharing" {
 resource "aws_ebs_encryption_by_default" "main" {
   enabled = true
 }
+
+# ---------------------------------------------------------------
+# 6. EBS Snapshot Block Public Access
+# ---------------------------------------------------------------
+
+resource "aws_ebs_snapshot_block_public_access" "main" {
+  state = "block-all-sharing"
+}
