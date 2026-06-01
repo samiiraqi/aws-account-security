@@ -43,7 +43,7 @@ locals {
           stat    = "Sum"
           period  = 300
           metrics = [
-            ["AWS/SNS", "NumberOfMessagesSent", "TopicName", aws_sns_topic.security_alerts.name]
+            ["AWS/SNS", "NumberOfMessagesPublished", "TopicName", aws_sns_topic.security_alerts.name]
           ]
         }
       },
