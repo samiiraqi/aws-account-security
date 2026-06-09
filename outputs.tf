@@ -42,3 +42,8 @@ output "monthly_budget_name" {
   description = "Name of the monthly AWS budget"
   value       = module.alerts.monthly_budget_name
 }
+
+output "webhook_url" {
+  description = "API Gateway webhook URL — configure in Twilio sandbox as the WhatsApp 'When a message comes in' URL"
+  value       = module.security_agent.webhook_url
+}

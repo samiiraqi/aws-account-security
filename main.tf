@@ -44,4 +44,15 @@ module "alerts" {
   project_name            = var.project_name
   alert_email             = var.alert_email
   billing_alarm_threshold = var.billing_alarm_threshold
+  twilio_whatsapp_to      = var.twilio_whatsapp_to
+}
+
+module "security_agent" {
+  source = "./modules/security_agent"
+
+  aws_region         = var.aws_region
+  aws_account_id     = var.aws_account_id
+  project_name       = var.project_name
+  twilio_secret_arn  = module.alerts.twilio_secret_arn
+  twilio_whatsapp_to = var.twilio_whatsapp_to
 }

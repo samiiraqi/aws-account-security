@@ -13,15 +13,9 @@ variable "project_name" {
   type        = string
 }
 
-variable "alert_email" {
-  description = "Email address to receive security and billing alerts"
+variable "twilio_secret_arn" {
+  description = "ARN of the Secrets Manager secret containing Twilio credentials"
   type        = string
-}
-
-variable "billing_alarm_threshold" {
-  description = "USD threshold that triggers the billing alarm"
-  type        = number
-  default     = 20
 }
 
 variable "twilio_whatsapp_from" {
@@ -31,6 +25,12 @@ variable "twilio_whatsapp_from" {
 }
 
 variable "twilio_whatsapp_to" {
-  description = "Recipient WhatsApp number for alerts (without whatsapp: prefix)"
+  description = "Recipient WhatsApp number for security alerts (without whatsapp: prefix)"
   type        = string
+}
+
+variable "claude_secret_name" {
+  description = "Secrets Manager secret name containing the Claude API key ({\"api_key\": \"sk-ant-...\"})"
+  type        = string
+  default     = "aws-security-agent-claude-key"
 }

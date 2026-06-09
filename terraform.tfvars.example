@@ -5,3 +5,5 @@ aws_account_id = "123456789012"
 
 alert_email             = "your-email@example.com"
 billing_alarm_threshold = 20
+
+twilio_whatsapp_to = "+972502195375"

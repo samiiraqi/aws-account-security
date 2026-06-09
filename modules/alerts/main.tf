@@ -1,5 +1,5 @@
 locals {
-  lambda_function_name = "${var.project_name}-alerts-formatter"
+  lambda_function_name = "${var.project_name}-billing-whatsapp"
 
   dashboard_body = jsonencode({
     widgets = [
@@ -37,7 +37,7 @@ locals {
         width  = 12
         height = 6
         properties = {
-          title   = "SNS — Messages Sent"
+          title   = "SNS — Messages Published"
           view    = "timeSeries"
           region  = var.aws_region
           stat    = "Sum"
@@ -87,9 +87,9 @@ locals {
 }
 
 # ---------------------------------------------------------------
-# 1 + 2. SNS Topic & Email Subscription
-# EventBridge now routes through Lambda — only CloudWatch (billing)
-# publishes directly to SNS, so the topic policy reflects that.
+# SNS Topic
+# Budget sends email directly — SNS is used only to trigger Lambda.
+# The email subscription is omitted to avoid duplicate emails.
 # ---------------------------------------------------------------
 
 resource "aws_sns_topic" "security_alerts" {
@@ -103,10 +103,10 @@ resource "aws_sns_topic_policy" "security_alerts" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid    = "AllowCloudWatchPublish"
+        Sid    = "AllowBudgetsPublish"
         Effect = "Allow"
         Principal = {
-          Service = "cloudwatch.amazonaws.com"
+          Service = "budgets.amazonaws.com"
         }
         Action   = "sns:Publish"
         Resource = aws_sns_topic.security_alerts.arn
@@ -115,15 +115,9 @@ resource "aws_sns_topic_policy" "security_alerts" {
   })
 }
 
-resource "aws_sns_topic_subscription" "email" {
-  topic_arn = aws_sns_topic.security_alerts.arn
-  protocol  = "email"
-  endpoint  = var.alert_email
-}
-
 # ---------------------------------------------------------------
-# 3. AWS Budget — Monthly Cost
-# Actual > 100% ($20) and Forecast > 80% ($16) trigger email
+# AWS Budget — Monthly Cost
+# Direct email + SNS (SNS triggers Lambda → WhatsApp)
 # ---------------------------------------------------------------
 
 resource "aws_budgets_budget" "monthly" {
@@ -139,6 +133,7 @@ resource "aws_budgets_budget" "monthly" {
     threshold_type             = "PERCENTAGE"
     notification_type          = "ACTUAL"
     subscriber_email_addresses = [var.alert_email]
+    subscriber_sns_topic_arns  = [aws_sns_topic.security_alerts.arn]
   }
 
   notification {
@@ -147,21 +142,44 @@ resource "aws_budgets_budget" "monthly" {
     threshold_type             = "PERCENTAGE"
     notification_type          = "FORECASTED"
     subscriber_email_addresses = [var.alert_email]
+    subscriber_sns_topic_arns  = [aws_sns_topic.security_alerts.arn]
   }
 }
 
 # ---------------------------------------------------------------
-# Lambda — Alert Formatter
+# Twilio Credentials — Secrets Manager
 # ---------------------------------------------------------------
 
-data "archive_file" "lambda_alerts" {
+resource "aws_secretsmanager_secret" "twilio" {
+  name        = "${var.project_name}/twilio"
+  description = "Twilio Account SID and Auth Token for WhatsApp alerts"
+}
+
+resource "aws_secretsmanager_secret_version" "twilio" {
+  secret_id = aws_secretsmanager_secret.twilio.id
+  secret_string = jsonencode({
+    account_sid = "REPLACE_WITH_TWILIO_ACCOUNT_SID"
+    auth_token  = "REPLACE_WITH_TWILIO_AUTH_TOKEN"
+  })
+
+  # Prevents Terraform from overwriting real credentials after initial creation
+  lifecycle {
+    ignore_changes = [secret_string]
+  }
+}
+
+# ---------------------------------------------------------------
+# Lambda — Billing WhatsApp Forwarder
+# ---------------------------------------------------------------
+
+data "archive_file" "lambda" {
   type        = "zip"
   source_file = "${path.module}/lambda/handler.py"
   output_path = "${path.module}/lambda/handler.zip"
 }
 
-resource "aws_iam_role" "lambda_alerts" {
-  name = "${var.project_name}-lambda-alerts"
+resource "aws_iam_role" "lambda" {
+  name = "${var.project_name}-billing-whatsapp"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -173,18 +191,18 @@ resource "aws_iam_role" "lambda_alerts" {
   })
 }
 
-resource "aws_iam_role_policy" "lambda_alerts" {
-  name = "sns-publish-and-logs"
-  role = aws_iam_role.lambda_alerts.id
+resource "aws_iam_role_policy" "lambda" {
+  name = "secretsmanager-and-logs"
+  role = aws_iam_role.lambda.id
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
-        Sid      = "PublishToSNS"
+        Sid      = "ReadTwilioSecret"
         Effect   = "Allow"
-        Action   = "sns:Publish"
-        Resource = aws_sns_topic.security_alerts.arn
+        Action   = "secretsmanager:GetSecretValue"
+        Resource = aws_secretsmanager_secret.twilio.arn
       },
       {
         Sid    = "WriteLogs"
@@ -193,102 +211,54 @@ resource "aws_iam_role_policy" "lambda_alerts" {
           "logs:CreateLogStream",
           "logs:PutLogEvents"
         ]
-        Resource = "${aws_cloudwatch_log_group.lambda_alerts.arn}:*"
+        Resource = "${aws_cloudwatch_log_group.lambda.arn}:*"
       }
     ]
   })
 }
 
-resource "aws_cloudwatch_log_group" "lambda_alerts" {
+resource "aws_cloudwatch_log_group" "lambda" {
   name              = "/aws/lambda/${local.lambda_function_name}"
   retention_in_days = 30
 }
 
-resource "aws_lambda_function" "alerts_formatter" {
-  filename         = data.archive_file.lambda_alerts.output_path
+resource "aws_lambda_function" "billing_whatsapp" {
+  filename         = data.archive_file.lambda.output_path
   function_name    = local.lambda_function_name
-  role             = aws_iam_role.lambda_alerts.arn
+  role             = aws_iam_role.lambda.arn
   handler          = "handler.lambda_handler"
   runtime          = "python3.12"
-  source_code_hash = data.archive_file.lambda_alerts.output_base64sha256
+  source_code_hash = data.archive_file.lambda.output_base64sha256
   timeout          = 30
 
   environment {
     variables = {
-      SNS_TOPIC_ARN = aws_sns_topic.security_alerts.arn
+      TWILIO_SECRET_ARN = aws_secretsmanager_secret.twilio.arn
+      WHATSAPP_FROM     = var.twilio_whatsapp_from
+      WHATSAPP_TO       = var.twilio_whatsapp_to
+      BUDGET_LIMIT_USD  = tostring(var.billing_alarm_threshold)
     }
   }
 
-  depends_on = [aws_cloudwatch_log_group.lambda_alerts]
+  depends_on = [aws_cloudwatch_log_group.lambda]
 }
 
-# ---------------------------------------------------------------
-# 4. GuardDuty → EventBridge → Lambda → SNS
-# ---------------------------------------------------------------
-
-resource "aws_cloudwatch_event_rule" "guardduty" {
-  name        = "guardduty-findings"
-  description = "Forward GuardDuty findings to the alert formatter Lambda"
-
-  event_pattern = jsonencode({
-    source      = ["aws.guardduty"]
-    detail-type = ["GuardDuty Finding"]
-  })
+resource "aws_sns_topic_subscription" "lambda" {
+  topic_arn = aws_sns_topic.security_alerts.arn
+  protocol  = "lambda"
+  endpoint  = aws_lambda_function.billing_whatsapp.arn
 }
 
-resource "aws_cloudwatch_event_target" "guardduty_lambda" {
-  rule      = aws_cloudwatch_event_rule.guardduty.name
-  target_id = "GuardDutyToLambda"
-  arn       = aws_lambda_function.alerts_formatter.arn
-}
-
-resource "aws_lambda_permission" "guardduty" {
-  statement_id  = "AllowEventBridgeGuardDuty"
+resource "aws_lambda_permission" "sns" {
+  statement_id  = "AllowSNSInvoke"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.alerts_formatter.function_name
-  principal     = "events.amazonaws.com"
-  source_arn    = aws_cloudwatch_event_rule.guardduty.arn
+  function_name = aws_lambda_function.billing_whatsapp.function_name
+  principal     = "sns.amazonaws.com"
+  source_arn    = aws_sns_topic.security_alerts.arn
 }
 
 # ---------------------------------------------------------------
-# 5. Security Hub → EventBridge → Lambda → SNS
-# Filter: only NEW + ACTIVE + FAILED findings
-# ---------------------------------------------------------------
-
-resource "aws_cloudwatch_event_rule" "securityhub" {
-  name        = "securityhub-findings"
-  description = "Forward Security Hub failed findings to the alert formatter Lambda"
-
-  event_pattern = jsonencode({
-    source      = ["aws.securityhub"]
-    detail-type = ["Security Hub Findings - Imported"]
-    detail = {
-      findings = {
-        Severity    = { Label = ["CRITICAL", "HIGH"] }
-        Compliance  = { Status = ["FAILED"] }
-        Workflow    = { Status = ["NEW"] }
-        RecordState = ["ACTIVE"]
-      }
-    }
-  })
-}
-
-resource "aws_cloudwatch_event_target" "securityhub_lambda" {
-  rule      = aws_cloudwatch_event_rule.securityhub.name
-  target_id = "SecurityHubToLambda"
-  arn       = aws_lambda_function.alerts_formatter.arn
-}
-
-resource "aws_lambda_permission" "securityhub" {
-  statement_id  = "AllowEventBridgeSecurityHub"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.alerts_formatter.function_name
-  principal     = "events.amazonaws.com"
-  source_arn    = aws_cloudwatch_event_rule.securityhub.arn
-}
-
-# ---------------------------------------------------------------
-# 6. CloudWatch Dashboard
+# CloudWatch Dashboard
 # ---------------------------------------------------------------
 
 resource "aws_cloudwatch_dashboard" "main" {

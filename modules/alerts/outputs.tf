@@ -18,12 +18,17 @@ output "monthly_budget_name" {
   value       = aws_budgets_budget.monthly.name
 }
 
+output "twilio_secret_arn" {
+  description = "ARN of the Twilio credentials secret in Secrets Manager"
+  value       = aws_secretsmanager_secret.twilio.arn
+}
+
 output "lambda_function_arn" {
-  description = "ARN of the alert formatter Lambda function"
-  value       = aws_lambda_function.alerts_formatter.arn
+  description = "ARN of the billing WhatsApp Lambda function"
+  value       = aws_lambda_function.billing_whatsapp.arn
 }
 
 output "lambda_function_name" {
-  description = "Name of the alert formatter Lambda function"
-  value       = aws_lambda_function.alerts_formatter.function_name
+  description = "Name of the billing WhatsApp Lambda function"
+  value       = aws_lambda_function.billing_whatsapp.function_name
 }

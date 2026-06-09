@@ -31,3 +31,8 @@ variable "billing_alarm_threshold" {
   type        = number
   default     = 20
 }
+
+variable "twilio_whatsapp_to" {
+  description = "Recipient WhatsApp number for billing alerts (without whatsapp: prefix)"
+  type        = string
+}
