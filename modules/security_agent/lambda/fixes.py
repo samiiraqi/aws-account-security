@@ -3,6 +3,7 @@
 import base64
 import json
 import os
+import re
 import urllib.parse
 import urllib.request
 
@@ -23,6 +24,14 @@ WHATSAPP_TO       = os.environ["WHATSAPP_TO"]
 
 _twilio_creds: dict | None = None
 
+# Matches all AWS access key ID formats (AKIA*, ASIA*, AROA*, AIDA*, ANPA*)
+_AWS_KEY_RE = re.compile(r'\b(?:AKIA|ASIA|AROA|AIDA|ANPA)[A-Z0-9]{16}\b')
+
+
+def _sanitize(text: str) -> str:
+    """Mask any AWS access key IDs in outbound WhatsApp text."""
+    return _AWS_KEY_RE.sub("****", text)
+
 
 def _get_twilio_creds() -> dict:
     global _twilio_creds
@@ -41,7 +50,7 @@ def send_whatsapp(body: str, to: str | None = None) -> None:
     payload = urllib.parse.urlencode({
         "From": f"whatsapp:{WHATSAPP_FROM}",
         "To":   f"whatsapp:{to or WHATSAPP_TO}",
-        "Body": body,
+        "Body": _sanitize(body),
     }).encode()
 
     token = base64.b64encode(f"{account_sid}:{auth_token}".encode()).decode()
@@ -105,13 +114,17 @@ def fix_close_sg_port(detail: dict, params: dict) -> str:
     )
 
 
+def _mask_key(key_id: str) -> str:
+    return "****"
+
+
 def fix_revoke_iam(detail: dict, params: dict) -> str:
     key_info      = detail.get("resource", {}).get("accessKeyDetails", {})
     user_name     = params.get("user_name")     or key_info.get("userName",    "")
     access_key_id = params.get("access_key_id") or key_info.get("accessKeyId", "")
 
     iam_client.delete_access_key(UserName=user_name, AccessKeyId=access_key_id)
-    return f"מפתח גישה {access_key_id} של {user_name} נמחק"
+    return f"מפתח גישה {_mask_key(access_key_id)} של {user_name} נמחק"
 
 
 def fix_block_s3_public(detail: dict, params: dict) -> str:

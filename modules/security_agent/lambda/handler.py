@@ -101,8 +101,10 @@ def _extract_resource(resource: dict) -> str:
         buckets = resource.get("s3BucketDetails", [])
         return f"S3 Bucket: {buckets[0].get('name', '?')}" if buckets else "S3 Bucket"
     if rtype == "AccessKey":
-        d = resource.get("accessKeyDetails", {})
-        return f"IAM User: {d.get('userName', '?')} (key: {d.get('accessKeyId', '?')})"
+        d      = resource.get("accessKeyDetails", {})
+        raw_id = d.get("accessKeyId", "?")
+        masked = "****"
+        return f"IAM User: {d.get('userName', '?')} (key: {masked})"
     if rtype == "EKSCluster":
         return f"EKS Cluster: {resource.get('eksClusterDetails', {}).get('name', '?')}"
     if rtype == "Lambda":

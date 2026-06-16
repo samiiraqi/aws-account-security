@@ -133,6 +133,7 @@ resource "aws_lambda_function" "security_agent" {
       WHATSAPP_FROM      = var.twilio_whatsapp_from
       WHATSAPP_TO        = var.twilio_whatsapp_to
       TABLE_NAME         = aws_dynamodb_table.pending_fixes.name
+      DEPLOY_TIME        = "2026-06-12T17:50:40Z"
     }
   }
 
@@ -234,6 +235,7 @@ resource "aws_lambda_function" "security_agent_responder" {
       WHATSAPP_FROM     = var.twilio_whatsapp_from
       WHATSAPP_TO       = var.twilio_whatsapp_to
       TABLE_NAME        = aws_dynamodb_table.pending_fixes.name
+      DEPLOY_TIME       = "2026-06-12T17:50:40Z"
     }
   }
 
